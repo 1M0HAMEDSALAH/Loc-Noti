@@ -12,13 +12,12 @@ class MyAppnoti extends StatefulWidget {
 class _MyAppnotiState extends State<MyAppnoti> {
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
 
-  double? lat;
-  double? long;
+  List<Map<String, double>> locationList = [];
 
   getToken() async {
-    String? Token =await _firebaseMessaging.getToken();
+    String? token = await _firebaseMessaging.getToken();
     print("----------------------");
-    print(Token);
+    print(token);
   }
 
   GetTheCurrentLocation() async {
@@ -26,31 +25,51 @@ class _MyAppnotiState extends State<MyAppnoti> {
     LocationPermission permission;
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     permission = await Geolocator.checkPermission();
+
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         return Future.error('Location permissions are denied');
       }
     }
-    if(permission == LocationPermission.whileInUse){
+
+    if (permission == LocationPermission.whileInUse) {
       print("whileInUse");
       Position position = await Geolocator.getCurrentPosition();
       print('------------------------------------');
       SharedPreferences prefs = await SharedPreferences.getInstance();
 
-      await prefs.setDouble('latitude', position.latitude);
-      await prefs.setDouble('longitude', position.longitude);
 
+      String? locationJson = prefs.getString('locationListMap');
+      List<Map<String, double>> storedLocations = [];
+
+      if (locationJson != null) {
+        storedLocations = List<Map<String, double>>.from(
+            jsonDecode(locationJson).map((item) => Map<String, double>.from(item))
+        );
+      }
+
+      storedLocations.add({
+        'latitude': position.latitude,
+        'longitude': position.longitude
+      });
+
+
+      String updatedLocationJson = jsonEncode(storedLocations);
+      await prefs.setString('locationListMap', updatedLocationJson);
+
+      print("Location stored as List of Maps: $updatedLocationJson");
+      loadLocations();
     }
-    if(serviceEnabled == false){
+
+    if (!serviceEnabled) {
       print('Error Location Service');
-    }else{
-      print("ok");
+    } else {
+      print("Location Service is enabled");
     }
   }
 
-  MyrequestPremission() async
-  {
+  MyrequestPremission() async {
     FirebaseMessaging messaging = FirebaseMessaging.instance;
 
     NotificationSettings settings = await messaging.requestPermission(
@@ -72,26 +91,31 @@ class _MyAppnotiState extends State<MyAppnoti> {
     }
   }
 
-
   loadLocations() async {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
+    SharedPreferences prefs = await SharedPreferences.getInstance();
 
-      double? latitude = prefs.getDouble('latitude');
-      double? longitude = prefs.getDouble('longitude');
-      print("Stored Location: Lat = $latitude, Long = $longitude");
-      lat = latitude;
-      long = longitude;
+    String? locationJson = prefs.getString('locationListMap');
+
+    if (locationJson != null) {
+      List<Map<String, double>> locationListFromPrefs = List<Map<String, double>>.from(
+          jsonDecode(locationJson).map((item) => Map<String, double>.from(item))
+      );
+      setState(() {
+        locationList = locationListFromPrefs;
+      });
+    } else {
+      print("No location stored.");
+    }
   }
-
 
   @override
   void initState() {
-    FirebaseMessaging.onMessage.listen((RemoteMessage massege){
-      if(massege.notification != null){
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      if (message.notification != null) {
         print("=====================");
-        print(massege.notification!.title);
-        print(massege.notification!.body);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content : Text("${massege.notification!.body}")));
+        print(message.notification!.title);
+        print(message.notification!.body);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${message.notification!.body}")));
         GetTheCurrentLocation();
       }
     });
@@ -107,9 +131,19 @@ class _MyAppnotiState extends State<MyAppnoti> {
         title: const Text("Notification & Location"),
       ),
       body: Center(
-        child: ListTile(
+        child: locationList.isEmpty
+            ? const CircularProgressIndicator()
+            : ListView.builder(
+          itemCount: locationList.length,
+          itemBuilder: (context, index) {
+            var location = locationList[index];
+            double latitude = location['latitude']!;
+            double longitude = location['longitude']!;
+            return ListTile(
               title: const Text("Location"),
-              subtitle: Text("Lat: $lat, Long: $long"),
+              subtitle: Text("Lat: $latitude, Long: $longitude"),
+            );
+          },
         ),
       ),
     );
